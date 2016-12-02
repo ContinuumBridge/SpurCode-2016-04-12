@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<session version="1.0">
+<refactoring comment="Delete resource &apos;Spur Configuration/Application/User/process.c&apos;" deleteContents="false" description="Delete resource &apos;Spur Configuration/Application/User/process.c&apos;" element1="/Spur Configuration/Application/User/process.c" flags="7" id="org.eclipse.ltk.core.refactoring.delete.resources" resources="1" stamp="1480590166337"/>
+</session>
