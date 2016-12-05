@@ -6,7 +6,7 @@
 *.o
 # C extensions
 *.so
-
+TrueSTUDIO/
 # Vim temporary files
 *.swp
 *.swo

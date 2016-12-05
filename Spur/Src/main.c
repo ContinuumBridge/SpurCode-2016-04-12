@@ -58,7 +58,7 @@
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
 //#define CB_DEMO_0
-#define VERSION					3
+#define VERSION					4
 #define FONT_2 					Arial_Narrow14x20
 //#define FONT_2 					Arial_Unicode_MS17x20
 #define FONT_3 					Arial_Narrow18x26
@@ -186,6 +186,7 @@ int8_t 				temperature;
 int8_t 				rssi;
 uint8_t				using_side				= BOTH_SIDES;
 uint8_t				no_long_check			= 0;
+uint8_t				catch_loop				= 0;
 
 typedef enum {initial, normal, pressed, search, search_failed, reverting, demo} NodeState;
 NodeState         node_state           = initial;
@@ -370,6 +371,14 @@ __HAL_UART_FLUSH_DRREGISTER(&huart3);
 				  }
 			  }
 		  }
+	  }
+	  else
+	  {
+		  // Should never get here, so if we do, reset the system
+		  Radio_Off();
+		  DEBUG_TX("No IRQ\r\n\0");
+		  Delay_ms(100);
+		  NVIC_SystemReset();
 	  }
 	  if(stop_mode)
 	  {
@@ -1191,14 +1200,9 @@ void Radio_On(int delay)
     if(delay)
     {
     	Delay_ms(400);
-    	Host_Ready();
+    	HAL_GPIO_WritePin(GPIOB, HOST_READY_Pin, GPIO_PIN_RESET);
     	Delay_ms(50);
     }
-}
-
-void Host_Ready(void)
-{
-	HAL_GPIO_WritePin(GPIOB, HOST_READY_Pin, GPIO_PIN_RESET);
 }
 
 void Radio_Off(void)
@@ -1206,7 +1210,11 @@ void Radio_Off(void)
 	GPIO_InitTypeDef GPIO_InitStruct;
 	DEBUG_TX("Radio_Off\r\n\0");
 	HAL_UART_MspDeInit(&huart3);
+    HAL_GPIO_WritePin(RADIO_POWER_GPIO_Port, RADIO_POWER_Pin, GPIO_PIN_SET);
+    Delay_ms(1);
     HAL_GPIO_WritePin(RADIO_POWER_GPIO_Port, RADIO_POWER_Pin, GPIO_PIN_RESET);
+    Delay_ms(5);
+	HAL_GPIO_WritePin(GPIOB, HOST_READY_Pin, GPIO_PIN_RESET);
 	__GPIOB_CLK_ENABLE();
 	GPIO_InitStruct.Pin = GPIO_PIN_10;
 	GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
@@ -1868,7 +1876,7 @@ void Configure_And_Test(uint8_t reset)
 	}
 
 	__HAL_UART_FLUSH_DRREGISTER(&huart3);
-	if(Message_Search(beacon_address, Rx_Buffer, &length, 20000) == SEARCH_OK)
+	if(Message_Search(beacon_address, Rx_Buffer, &length, BEACON_SEARCH_TIME) == SEARCH_OK)  // Max search time is in sixteenths
 	{
 		addr[0] = Rx_Buffer[2]; addr[1] = Rx_Buffer[3];
 		intaddr = (addr[0] << 8) | addr[1];
