@@ -52,8 +52,8 @@ void MX_ADC_Init(void)
     */
   hadc.Instance = ADC1;
   hadc.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV1;
-  hadc.Init.Resolution = ADC_RESOLUTION12b;
-  hadc.Init.DataAlign = ADC_DATAALIGN_RIGHT;
+  hadc.Init.Resolution = ADC_RESOLUTION8b;
+  hadc.Init.DataAlign = ADC_DATAALIGN_LEFT;
   hadc.Init.ScanConvMode = ADC_SCAN_DISABLE;
   hadc.Init.EOCSelection = EOC_SEQ_CONV;
   hadc.Init.LowPowerAutoWait = ADC_AUTOWAIT_DISABLE;
