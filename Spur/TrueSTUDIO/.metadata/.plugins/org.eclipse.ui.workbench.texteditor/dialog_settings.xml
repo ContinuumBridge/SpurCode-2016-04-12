@@ -4,20 +4,20 @@
 	</section>
 	<section name="org.eclipse.ui.texteditor.FindReplaceDialog">
 		<item value="true" key="wrap"/>
-		<item value="false" key="casesensitive"/>
 		<item value="false" key="isRegEx"/>
+		<item value="false" key="casesensitive"/>
 		<item value="false" key="incremental"/>
 		<item value="false" key="wholeword"/>
-		<item value="Node ID" key="selection"/>
+		<item value="||" key="selection"/>
 		<list key="findhistory">
-			<item value="Node ID"/>
-			<item value="MAX_SCREEN"/>
-			<item value="demo"/>
-			<item value="OK"/>
-			<item value="paper"/>
-			<item value="On_NewState"/>
-			<item value="enable_send"/>
-			<item value="Radio_On"/>
+			<item value="||"/>
+			<item value="stop_mode ="/>
+			<item value="catch_loop"/>
+			<item value="Button IRQ"/>
+			<item value="Enable_IRQ:"/>
+			<item value="Enable_IRQ"/>
+			<item value="button_irq ="/>
+			<item value="NVIC_SystemReset"/>
 		</list>
 		<list key="replacehistory">
 		</list>

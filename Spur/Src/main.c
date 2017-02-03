@@ -58,7 +58,7 @@
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
 //#define CB_DEMO_0
-#define VERSION					4
+#define VERSION					5
 #define FONT_2 					Arial_Narrow14x20
 //#define FONT_2 					Arial_Unicode_MS17x20
 #define FONT_3 					Arial_Narrow18x26
@@ -180,13 +180,13 @@ int32_t				button_press_time[2] 	= {-100, -100};
 uint32_t			last_press_sixteenths[2] = {0, 0};
 uint8_t				check_long[2]   		= {0, 0};
 uint8_t				stop_mode				= 1;
+uint8_t				stop_mode_0_count		= 0;
 uint8_t				start_from_reset		= 1;
 uint8_t				display_initialised		= 0;
 int8_t 				temperature;
 int8_t 				rssi;
 uint8_t				using_side				= BOTH_SIDES;
 uint8_t				no_long_check			= 0;
-uint8_t				catch_loop				= 0;
 
 typedef enum {initial, normal, pressed, search, search_failed, reverting, demo} NodeState;
 NodeState         node_state           = initial;
@@ -372,24 +372,19 @@ __HAL_UART_FLUSH_DRREGISTER(&huart3);
 			  }
 		  }
 	  }
-	  else
+	  if(stop_mode || (stop_mode_0_count > 5))
 	  {
-		  // Should never get here, so if we do, reset the system
-		  Radio_Off();
-		  DEBUG_TX("No IRQ\r\n\0");
-		  Delay_ms(100);
-		  NVIC_SystemReset();
-	  }
-	  if(stop_mode)
-	  {
+		  sprintf(debug_buff, "Stopping: %d\r\n", (int)stop_mode_0_count);
+		  DEBUG_TX(debug_buff);
 		  for(side=0; side<2; side++)
 			  last_press_sixteenths[side] = 0;
-		  Enable_IRQ(using_side);
-		  button_irq = 0;  // Seemed to be missed above
-		  DEBUG_TX("Stopping\r\n\0");
+		  stop_mode = 1;  // Just in case we got here without
+		  stop_mode_0_count = 0;  // Reset the trap that stops us looping under error conditions
 		  Radio_Off();
 		  Delay_ms(20);
 		  HAL_UART_MspDeInit(&huart1);
+		  Enable_IRQ(using_side);
+		  button_irq = 0;  // Seemed to be missed above
 		  //HAL_PWR_EnterSTANDBYMode();
 		  SystemPower_Config();
 		  SysTick->CTRL  &= ~SysTick_CTRL_TICKINT_Msk;        // systick IRQ off
@@ -735,6 +730,7 @@ uint8_t On_Button_Press(uint16_t button_pressed, uint16_t GPIO_Pin, GPIO_PinStat
 	   		//	Radio_Off();
 	   		double_press = 0;
 	   		stop_mode = 0;
+	   		stop_mode_0_count++;
 	   		if(side == LEFT_SIDE) DEBUG_TX("BL\r\n\0"); else DEBUG_TX("BR\r\n\0");
 	   		return PRESS_NONE;
 	   	}
@@ -798,6 +794,7 @@ uint8_t On_Button_Press(uint16_t button_pressed, uint16_t GPIO_Pin, GPIO_PinStat
 			{
 				check_double[side] = 1;
 				stop_mode = 0;
+				stop_mode_0_count++;
 			}
 			return PRESS_NONE;
 		}
