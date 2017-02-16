@@ -8,16 +8,16 @@
 		<item value="false" key="casesensitive"/>
 		<item value="false" key="incremental"/>
 		<item value="false" key="wholeword"/>
-		<item value="||" key="selection"/>
+		<item value="loop_catcher" key="selection"/>
 		<list key="findhistory">
+			<item value="loop_catcher"/>
+			<item value="eset b/w"/>
+			<item value="version"/>
+			<item value="stop_mode_0_count"/>
+			<item value="Version"/>
 			<item value="||"/>
 			<item value="stop_mode ="/>
 			<item value="catch_loop"/>
-			<item value="Button IRQ"/>
-			<item value="Enable_IRQ:"/>
-			<item value="Enable_IRQ"/>
-			<item value="button_irq ="/>
-			<item value="NVIC_SystemReset"/>
 		</list>
 		<list key="replacehistory">
 		</list>

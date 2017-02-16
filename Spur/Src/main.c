@@ -187,6 +187,7 @@ int8_t 				temperature;
 int8_t 				rssi;
 uint8_t				using_side				= BOTH_SIDES;
 uint8_t				no_long_check			= 0;
+uint16_t			loop_catcher			= 0;
 
 typedef enum {initial, normal, pressed, search, search_failed, reverting, demo} NodeState;
 NodeState         node_state           = initial;
@@ -342,6 +343,7 @@ __HAL_UART_FLUSH_DRREGISTER(&huart3);
 	  {
 		  HAL_NVIC_DisableIRQ(EXTI3_IRQn);
 		  HAL_NVIC_DisableIRQ(EXTI15_10_IRQn);
+		  loop_catcher = 0;
 		  Delay_ms(20);
 		  button_state = HAL_GPIO_ReadPin(GPIOA, pressed_button);
 		  sprintf(debug_buff, "Button IRQ: state: %d\r\n", button_state);
@@ -353,11 +355,13 @@ __HAL_UART_FLUSH_DRREGISTER(&huart3);
 	  else if(rtc_irq)
 	  {
 		  rtc_irq = 0;
+		  loop_catcher = 0;
 		  DEBUG_TX("RTC IRQ\r\n\0");
 		  On_RTC_IRQ();
 	  }
 	  else if(!stop_mode)
 	  {
+		  loop_catcher = 0;
 		  uint32_t sixteenths_now = SIXTEENTHS_NOW;
 		  for(side=0; side<2; side++)
 		  {
@@ -380,14 +384,22 @@ __HAL_UART_FLUSH_DRREGISTER(&huart3);
 			  last_press_sixteenths[side] = 0;
 		  stop_mode = 1;  // Just in case we got here without
 		  stop_mode_0_count = 0;  // Reset the trap that stops us looping under error conditions
+		  Enable_IRQ(using_side);
+		  Delay_ms(20);
+		  button_irq = 0;  // Seemed to be missed above
+		  loop_catcher++;
 		  Radio_Off();
+		  if(loop_catcher > 10)  // We're spinning round and not going into stop mode
+		  {
+			  DEBUG_TX("Loop catcher\r\n");
+			  Delay_ms(5000);
+		  }
 		  Delay_ms(20);
 		  HAL_UART_MspDeInit(&huart1);
-		  Enable_IRQ(using_side);
-		  button_irq = 0;  // Seemed to be missed above
+
 		  //HAL_PWR_EnterSTANDBYMode();
-		  SystemPower_Config();
-		  SysTick->CTRL  &= ~SysTick_CTRL_TICKINT_Msk;        // systick IRQ off
+		  //SystemPower_Config();  Experiment
+		  //SysTick->CTRL  &= ~SysTick_CTRL_TICKINT_Msk;        // systick IRQ off  Experiment
 		  HAL_PWR_EnterSTOPMode(PWR_LOWPOWERREGULATOR_ON, PWR_STOPENTRY_WFI);
 	  }
   /* USER CODE END WHILE */
@@ -1856,9 +1868,9 @@ void Configure_And_Test(uint8_t reset)
 		status = Rx_Message(Rx_Buffer, &length, 3000);
 		DEBUG_TX("Reset b/w: ");
 		Print_To_Debug(&Rx_Buffer, length);
-		Delay_ms(5);
+		Delay_ms(100);
 		RADIO_TXS("ACK", 3);
-		Delay_ms(5);
+		Delay_ms(100);
 
 		// Set frequency to 870.35 MHz
 		__HAL_UART_FLUSH_DRREGISTER(&huart3);
@@ -1866,9 +1878,9 @@ void Configure_And_Test(uint8_t reset)
 		status = Rx_Message(Rx_Buffer, &length, 3000);
 		DEBUG_TX("Set radio frequency: ");
 		Print_To_Debug(&Rx_Buffer, length);
-		Delay_ms(5);
+		Delay_ms(100);
 		RADIO_TXS("ACK", 3);
-		Delay_ms(5);
+		Delay_ms(10);
 		DEBUG_TX("Set radio freq ack\r\n\0");
 	}
 
