@@ -189,6 +189,8 @@ int8_t 				rssi;
 uint8_t				using_side				= BOTH_SIDES;
 uint8_t				no_long_check			= 0;
 uint16_t			loop_catcher			= 0;
+uint32_t 			Eeprom_addr 			= 0x08080000;
+uint32_t 			auto_reset;
 
 typedef enum {initial, normal, pressed, search, search_failed, reverting, demo} NodeState;
 NodeState         node_state           = initial;
@@ -299,18 +301,20 @@ int main(void)
 
   /*
   uint32_t addr = 0x08080000;
-  uint32_t Eeprom_data1;
-  Eeprom_data1 = *(uint32_t *)(addr);
-  sprintf(debug_buff, "EEprom data before: %d\r\n", (int)Eeprom_data1);
+  uint32_t auto_reset;
+  auto_reset = *(uint32_t *)(addr);
+  sprintf(debug_buff, "EEprom data before: %d\r\n", (int)auto_reset);
   DEBUG_TX(debug_buff);
   HAL_FLASHEx_DATAEEPROM_Unlock();
   HAL_FLASHEx_DATAEEPROM_Program(FLASH_TYPEPROGRAMDATA_WORD, addr, 0x0A0A0A0A);
   HAL_FLASHEx_DATAEEPROM_Lock();
-  Eeprom_data1 = *(uint32_t *)(addr);
-  sprintf(debug_buff, "EEprom data after: %d\r\n", (int)Eeprom_data1);
+  auto_reset = *(uint32_t *)(addr);
+  sprintf(debug_buff, "EEprom data after: %d\r\n", (int)auto_reset);
   DEBUG_TX(debug_buff);
   */
-  // Reset radio
+  auto_reset = *(uint32_t *)(Eeprom_addr);
+  sprintf(debug_buff, "auto_reset on reset: %d\r\n", (int)auto_reset);
+  DEBUG_TX(debug_buff);
   Configure_And_Test(1);
   Radio_Off();
   for(i=0; i<4; i++)
@@ -318,25 +322,20 @@ int main(void)
   tx_data[4] = (uint8_t)VERSION; tx_data[5] = rssi;
   sprintf(debug_buff,"RSSI to send: %d %d %d %d %d %d\r\n", (int)tx_data[0], (int)tx_data[1], (int)tx_data[2], (int)tx_data[3], (int)tx_data[4], (int)tx_data[5]);
   DEBUG_TX(debug_buff);
-  /*
-  Radio_On(1);
-__HAL_UART_FLUSH_DRREGISTER(&huart3);
-  status = Rx_Message(Rx_Buffer, &length, 8000);
-  if (status == HAL_OK)
+  Radio_Off();
+  if(!auto_reset)
   {
-	  bridge_address[0] = Rx_Buffer[2]; bridge_address[1] = Rx_Buffer[3];
-	  sprintf(debug_buff, "Received %x %x %x %x %x %x\r\n", Rx_Buffer[0], Rx_Buffer[1], Rx_Buffer[2], Rx_Buffer[3],
-						Rx_Buffer[4], Rx_Buffer[5]);
-	  DEBUG_TX(debug_buff);
+	  DEBUG_TX("Waiting\r\n\0");
+	  HAL_UART_MspDeInit(&huart1);
+	  HAL_PWR_EnterSTOPMode(PWR_LOWPOWERREGULATOR_ON, PWR_STOPENTRY_WFI);
   }
   else
-	  DEBUG_TX("Receive problem\r\n\0");
-  rssi = Get_RSSI();
-  */
-  Radio_Off();
-  DEBUG_TX("Waiting\r\n\0");
-  HAL_UART_MspDeInit(&huart1);
-  HAL_PWR_EnterSTOPMode(PWR_LOWPOWERREGULATOR_ON, PWR_STOPENTRY_WFI);
+  {
+	  // Set back to manual reset
+	  HAL_FLASHEx_DATAEEPROM_Unlock();
+	  HAL_FLASHEx_DATAEEPROM_Program(FLASH_TYPEPROGRAMDATA_WORD, Eeprom_addr, 0x00000000);
+	  HAL_FLASHEx_DATAEEPROM_Lock();
+  }
 
   /* USER CODE END 2 */
 
@@ -346,6 +345,13 @@ __HAL_UART_FLUSH_DRREGISTER(&huart3);
   {
 	  /* Configures system clock after wake-up from STOP: enable HSE, PLL and select
 	  PLL as system clock source (HSE and PLL are disabled in STOP mode) */
+	  if(auto_reset)
+	  {
+		  DEBUG_TX("Starting after auto reset\r\n\0");
+		  auto_reset = 0;
+		  include_state = 0;
+	  	  Network_Include();
+	  }
 	  if(stop_mode)
 	  {
 		  //SysTick->CTRL  |= SysTick_CTRL_TICKINT_Msk;            // systick IRQ on
@@ -405,11 +411,12 @@ __HAL_UART_FLUSH_DRREGISTER(&huart3);
 		  Radio_Off();
 		  if(loop_catcher > 10)  // We're spinning round and not going into stop mode
 		  {
-			  DEBUG_TX("Loop catcher\r\n");
+			  DEBUG_TX("Loop catcher system reset, setting EEPROM\r\n\0");
 			  Delay_ms(1000);
-			  On_Button_IRQ(BUTTON_PRESSED, 1, 0);
-			  Enable_IRQ(using_side);
-			  button_irq = 0;
+			  HAL_FLASHEx_DATAEEPROM_Unlock();
+			  HAL_FLASHEx_DATAEEPROM_Program(FLASH_TYPEPROGRAMDATA_WORD, Eeprom_addr, 0x0A0A0A0A);
+			  HAL_FLASHEx_DATAEEPROM_Lock();
+			  NVIC_SystemReset();
 		  }
 		  Delay_ms(20);
 		  HAL_UART_MspDeInit(&huart1);
@@ -794,10 +801,12 @@ uint8_t On_Button_Press(uint16_t button_pressed, uint16_t GPIO_Pin, GPIO_PinStat
 			//DEBUG_TX(debug_buff);
 			if((pressed_time > T_RESET_PRESS) && (pressed_time < T_MAX_RESET_PRESS) && (button_pressed))
 			{
-				DEBUG_TX("System reset\r\n\0");
+				DEBUG_TX("User initiated system reset, setting EEPROM\r\n\0");
+				HAL_FLASHEx_DATAEEPROM_Unlock();
+				HAL_FLASHEx_DATAEEPROM_Program(FLASH_TYPEPROGRAMDATA_WORD, Eeprom_addr, 0x00000000);
+				HAL_FLASHEx_DATAEEPROM_Lock();
 				NVIC_SystemReset();
 			}
-
 			else if((pressed_time > T_LONG_PRESS) && (pressed_time < T_MAX_RESET_PRESS))
 			{
 				stop_mode = 1;
@@ -1457,7 +1466,7 @@ void Listen_Radio(uint8_t reset_fail_count, uint8_t no_listen)
 		else if(Rx_Buffer[4] == f_start)
 		{
 			DEBUG_TX("Listen_Radio. Start received\r\n\0");
-			if(start_from_reset)
+			if(start_from_reset || auto_reset)
 			{
 				start_from_reset = 0;
 				current_state = STATE_START;
