@@ -182,7 +182,7 @@ uint32_t			last_press_sixteenths[2] = {0, 0};
 uint8_t				check_long[2]   		= {0, 0};
 uint8_t				stop_mode				= 1;
 uint8_t				stop_mode_0_count		= 0;
-uint8_t				start_from_reset		= 1;
+uint8_t				display_name_screen		= 1;
 uint8_t				display_initialised		= 0;
 int8_t 				temperature;
 int8_t 				rssi;
@@ -315,7 +315,8 @@ int main(void)
   auto_reset = *(uint32_t *)(Eeprom_addr);
   sprintf(debug_buff, "auto_reset on reset: %d\r\n", (int)auto_reset);
   DEBUG_TX(debug_buff);
-  Configure_And_Test(1);
+  if(!auto_reset)
+	  Configure_And_Test(1);
   Radio_Off();
   for(i=0; i<4; i++)
 	  tx_data[i] = node_id[i];
@@ -349,6 +350,7 @@ int main(void)
 	  {
 		  DEBUG_TX("Starting after auto reset\r\n\0");
 		  auto_reset = 0;
+		  display_name_screen = 0;
 		  include_state = 0;
 	  	  Network_Include();
 	  }
@@ -803,7 +805,7 @@ uint8_t On_Button_Press(uint16_t button_pressed, uint16_t GPIO_Pin, GPIO_PinStat
 			{
 				DEBUG_TX("User initiated system reset, setting EEPROM\r\n\0");
 				HAL_FLASHEx_DATAEEPROM_Unlock();
-				HAL_FLASHEx_DATAEEPROM_Program(FLASH_TYPEPROGRAMDATA_WORD, Eeprom_addr, 0x00000000);
+				HAL_FLASHEx_DATAEEPROM_Program(FLASH_TYPEPROGRAMDATA_WORD, Eeprom_addr, 0x0a0a0a0a);
 				HAL_FLASHEx_DATAEEPROM_Lock();
 				NVIC_SystemReset();
 			}
@@ -1466,9 +1468,8 @@ void Listen_Radio(uint8_t reset_fail_count, uint8_t no_listen)
 		else if(Rx_Buffer[4] == f_start)
 		{
 			DEBUG_TX("Listen_Radio. Start received\r\n\0");
-			if(start_from_reset || auto_reset)
+			if(display_name_screen)
 			{
-				start_from_reset = 0;
 				current_state = STATE_START;
 			}
 			else
