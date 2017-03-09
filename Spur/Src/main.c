@@ -187,6 +187,7 @@ uint8_t				display_initialised		= 0;
 int8_t 				temperature;
 int8_t 				rssi;
 uint8_t				using_side				= BOTH_SIDES;
+uint8_t				irq_enabled				= 0;
 uint8_t				no_long_check			= 0;
 uint16_t			loop_catcher			= 0;
 uint32_t 			Eeprom_addr 			= 0x08080000;
@@ -371,7 +372,10 @@ int main(void)
 		  sprintf(debug_buff, "Button IRQ: state: %d\r\n", button_state);
 		  DEBUG_TX(debug_buff);
 		  On_Button_IRQ(BUTTON_PRESSED, pressed_button, button_state);
-		  Enable_IRQ(using_side);
+		  if(irq_enabled)
+			  irq_enabled = 0;
+		  else
+			  Enable_IRQ(using_side);
 		  button_irq = 0;
 	  }
 	  else if(rtc_irq)
@@ -406,27 +410,33 @@ int main(void)
 			  last_press_sixteenths[side] = 0;
 		  stop_mode = 1;  // Just in case we got here without
 		  stop_mode_0_count = 0;  // Reset the trap that stops us looping under error conditions
-		  Enable_IRQ(using_side);
-		  Delay_ms(20);
-		  button_irq = 0;  // Seemed to be missed above
-		  loop_catcher++;
-		  Radio_Off();
-		  if(loop_catcher > 10)  // We're spinning round and not going into stop mode
+		  if(irq_enabled)
+			  irq_enabled = 0;
+		  else
+			  Enable_IRQ(using_side);
+		  if(!button_irq)
 		  {
-			  DEBUG_TX("Loop catcher system reset, setting EEPROM\r\n\0");
-			  Delay_ms(1000);
-			  HAL_FLASHEx_DATAEEPROM_Unlock();
-			  HAL_FLASHEx_DATAEEPROM_Program(FLASH_TYPEPROGRAMDATA_WORD, Eeprom_addr, 0x0A0A0A0A);
-			  HAL_FLASHEx_DATAEEPROM_Lock();
-			  NVIC_SystemReset();
-		  }
-		  Delay_ms(20);
-		  HAL_UART_MspDeInit(&huart1);
+			  Delay_ms(20);
+			  button_irq = 0;  // Seemed to be missed above
+			  loop_catcher++;
+			  Radio_Off();
+			  if(loop_catcher > 10)  // We're spinning round and not going into stop mode
+			  {
+				  DEBUG_TX("Loop catcher system reset, setting EEPROM\r\n\0");
+				  Delay_ms(1000);
+				  HAL_FLASHEx_DATAEEPROM_Unlock();
+				  HAL_FLASHEx_DATAEEPROM_Program(FLASH_TYPEPROGRAMDATA_WORD, Eeprom_addr, 0x0A0A0A0A);
+				  HAL_FLASHEx_DATAEEPROM_Lock();
+				  NVIC_SystemReset();
+			  }
+			  Delay_ms(20);
+			  HAL_UART_MspDeInit(&huart1);
 
-		  //HAL_PWR_EnterSTANDBYMode();
-		  //SystemPower_Config();  Experiment
-		  //SysTick->CTRL  &= ~SysTick_CTRL_TICKINT_Msk;        // systick IRQ off  Experiment
-		  HAL_PWR_EnterSTOPMode(PWR_LOWPOWERREGULATOR_ON, PWR_STOPENTRY_WFI);
+			  //HAL_PWR_EnterSTANDBYMode();
+			  //SystemPower_Config();  Experiment
+			  //SysTick->CTRL  &= ~SysTick_CTRL_TICKINT_Msk;        // systick IRQ off  Experiment
+			  HAL_PWR_EnterSTOPMode(PWR_LOWPOWERREGULATOR_ON, PWR_STOPENTRY_WFI);
+		  }
 	  }
   /* USER CODE END WHILE */
 

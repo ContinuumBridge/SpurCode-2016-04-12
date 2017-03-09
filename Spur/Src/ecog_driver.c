@@ -1053,6 +1053,10 @@ uint8_t ecog_update_display(uint8_t powered)
     ecog_write_screen_data();                                                           /* Write screen buffer data */
     //UART1_Write_Text("Writing nothing frame\r\n");
     ecog_write_nothing_frame();                                                         /* Write nothing frame to stabilise display */
+    // Enable button IRQ
+	using_side = BOTH_SIDES;
+	Enable_IRQ(using_side);
+	irq_enabled = 1;
     //UART1_Write_Text("Writing border frame\r\n");
     ecog_write_border();                                                                /* Write border data */
     //UART1_Write_Text("Discharging capacitors\r\n");
