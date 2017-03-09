@@ -4,20 +4,20 @@
 	</section>
 	<section name="org.eclipse.ui.texteditor.FindReplaceDialog">
 		<item value="true" key="wrap"/>
-		<item value="false" key="isRegEx"/>
 		<item value="false" key="casesensitive"/>
+		<item value="false" key="isRegEx"/>
 		<item value="false" key="incremental"/>
 		<item value="false" key="wholeword"/>
-		<item value="loop_catcher" key="selection"/>
+		<item value="#include" key="selection"/>
 		<list key="findhistory">
-			<item value="loop_catcher"/>
-			<item value="eset b/w"/>
-			<item value="version"/>
-			<item value="stop_mode_0_count"/>
-			<item value="Version"/>
-			<item value="||"/>
-			<item value="stop_mode ="/>
-			<item value="catch_loop"/>
+			<item value="RTC_IRQ"/>
+			<item value="#include"/>
+			<item value="On_NewState"/>
+			<item value="states"/>
+			<item value="PRESS_NONE"/>
+			<item value="Store_Config"/>
+			<item value="Store"/>
+			<item value="ENABLE_IRQ"/>
 		</list>
 		<list key="replacehistory">
 		</list>

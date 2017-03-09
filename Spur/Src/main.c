@@ -50,6 +50,7 @@
 #include "load_screens.h"
 #include "nodeid.h"
 #include "ecog_driver.h"
+#include "stm32l1xx_hal_flash_ex.h"
 
 /* USER CODE END Includes */
 
@@ -58,13 +59,12 @@
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
 //#define CB_DEMO_0
-#define VERSION					5
+#define VERSION					6
 #define FONT_2 					Arial_Narrow14x20
 //#define FONT_2 					Arial_Unicode_MS17x20
 #define FONT_3 					Arial_Narrow18x26
 
 #define STATE_TEST				16
-#define STATE_INITIAL_TEST		26
 #define STATE_NETWORK_PROBLEM	17
 #define STATE_SENDING			18
 #define STATE_INITIAL 			19
@@ -74,6 +74,7 @@
 #define STATE_PROBLEM 			23
 #define STATE_NOT_GRANT			24
 #define STATE_DEMO				25
+#define STATE_TEST_NEXT 		26
 #define STATE_NORMAL 			0
 #define STATE_PRESSED 			2
 #define STATE_OVERRIDE 			3
@@ -149,7 +150,7 @@ uint8_t 			node_id[] 				= {0x00, 0x00, 0x00, 0x00};
 
 char 				debug_buff[128] 		= {0};
 char 				screens[MAX_SCREEN][1][194];
-uint8_t				states[27][16]     		= {0xFF};
+uint8_t				states[28][16] 			= {0xFF};
 
 HAL_StatusTypeDef 	status;
 int 				length;
@@ -175,7 +176,7 @@ uint8_t 			current_screen 			= 0;
 uint8_t 			rtc_irq					= 0;
 uint16_t 			pressed_button;
 uint8_t 			running 				= 0;
-uint8_t				current_state			= STATE_INITIAL_TEST;
+uint8_t				current_state			= STATE_TEST;
 int32_t				button_press_time[2] 	= {-100, -100};
 uint32_t			last_press_sixteenths[2] = {0, 0};
 uint8_t				check_long[2]   		= {0, 0};
@@ -296,6 +297,19 @@ int main(void)
   ecog_printfc(FONT_3, 64, "Please wait");
   ecog_update_display(0);
 
+  /*
+  uint32_t addr = 0x08080000;
+  uint32_t Eeprom_data1;
+  Eeprom_data1 = *(uint32_t *)(addr);
+  sprintf(debug_buff, "EEprom data before: %d\r\n", (int)Eeprom_data1);
+  DEBUG_TX(debug_buff);
+  HAL_FLASHEx_DATAEEPROM_Unlock();
+  HAL_FLASHEx_DATAEEPROM_Program(FLASH_TYPEPROGRAMDATA_WORD, addr, 0x0A0A0A0A);
+  HAL_FLASHEx_DATAEEPROM_Lock();
+  Eeprom_data1 = *(uint32_t *)(addr);
+  sprintf(debug_buff, "EEprom data after: %d\r\n", (int)Eeprom_data1);
+  DEBUG_TX(debug_buff);
+  */
   // Reset radio
   Configure_And_Test(1);
   Radio_Off();
@@ -392,7 +406,10 @@ __HAL_UART_FLUSH_DRREGISTER(&huart3);
 		  if(loop_catcher > 10)  // We're spinning round and not going into stop mode
 		  {
 			  DEBUG_TX("Loop catcher\r\n");
-			  Delay_ms(5000);
+			  Delay_ms(1000);
+			  On_Button_IRQ(BUTTON_PRESSED, 1, 0);
+			  Enable_IRQ(using_side);
+			  button_irq = 0;
 		  }
 		  Delay_ms(20);
 		  HAL_UART_MspDeInit(&huart1);
@@ -853,7 +870,7 @@ void On_Button_IRQ(uint16_t button_pressed, uint16_t GPIO_Pin, GPIO_PinState but
 	{
 		return;
 	}
-	if(current_state == STATE_INITIAL_TEST)
+	if(current_state == STATE_TEST)
 	{
 		current_state = STATE_INITIAL;
 		Radio_On(1);             // Need this to properly
@@ -954,7 +971,7 @@ void On_Button_IRQ(uint16_t button_pressed, uint16_t GPIO_Pin, GPIO_PinState but
 				break;
 			case PRESS_LEFT_LONG:
 			case PRESS_RIGHT_LONG:
-				current_state = STATE_TEST;
+				current_state = STATE_TEST_NEXT;
 				Configure_And_Test(0);
 				return;
 			default:
@@ -1902,41 +1919,55 @@ void Configure_And_Test(uint8_t reset)
 	sprintf(debug_buff, "Battery voltage: %d.%d\r\n", (int)(voltage/100), voltage%100);
 	DEBUG_TX(debug_buff);
 	sprintf(screens[16][0], "F\x02Y\x04G\x13Node ID: %d", (int)node_id_int);
-	screens[16][0][4] = 0x43;  // C
-	sprintf(screens[16][0]+26, "Y\x1AG\x1AVer: %03d    Battery: %1d.%2dV", VERSION, (int)(voltage/100), voltage%100);
-	screens[16][0][28] = 0x43;  // C
+	screens[STATE_TEST][0][4] = 0x43;  // C
+	sprintf(screens[STATE_TEST][0]+26, "Y\x1AG\x1AVer: %03d    Battery: %1d.%2dV", VERSION, (int)(voltage/100), voltage%100);
+	screens[STATE_TEST][0][28] = 0x43;  // C
 	if(network_found)
 	{
 		if(rssi != 0) // atoi returns 0 if conversion cannot be performed
 			//sprintf(screens[16][0]+57, "Y\x30G\x16Gridge %02X%02X: %7s", (int)addr[0], (int)addr[1], Rx_Buffer);
-			sprintf(screens[16][0]+57, "Y\x30G\x16Gridge %05u: %7s", intaddr, Rx_Buffer);
+			sprintf(screens[STATE_TEST][0]+57, "Y\x30G\x16Gridge %05u: %7s", intaddr, Rx_Buffer);
 		else
-			sprintf(screens[16][0]+57, "Y\x30G\x16Gridge %05u: %7s", intaddr, "RSSI: ?");
-	  	screens[16][0][59] = 0x43;  // C
-		screens[16][0][61] = 0x42;  // B
+			sprintf(screens[STATE_TEST][0]+57, "Y\x30G\x16Gridge %05u: %7s", intaddr, "RSSI: ?");
+	  	screens[STATE_TEST][0][59] = 0x43;  // C
+		screens[STATE_TEST][0][61] = 0x42;  // B
 	}
 	else
 	{
-	  	sprintf(screens[16][0]+57, "Y\x30G\x16   No network found   ");
-	  	screens[16][0][59] = 0x43;  // C
+	  	sprintf(screens[STATE_TEST][0]+57, "Y\x30G\x16   No network found   ");
+	  	screens[STATE_TEST][0][59] = 0x43;  // C
 	}
-	sprintf(screens[16][0]+84, "Y\x46G\x15Push here to continue");
-	screens[16][0][86] = 0x43;  // C
-	Set_Display(STATE_TEST);
+	if(reset)
+	{
+		sprintf(screens[STATE_TEST][0]+84, "Y\x46G\x15Push here to continue");
+		screens[STATE_TEST][0][86] = 0x43;  // C
+		Set_Display(STATE_TEST);
+		current_state = STATE_TEST;
+	}
+	else
+	{
+		DEBUG_TX("Displaying config screen\r\n");
+		sprintf(screens[STATE_TEST][0]+84, "Y\x46G\x0BPlease wait");
+		screens[STATE_TEST][0][86] = 0x43;  // C
+		current_state = STATE_TEST_NEXT;
+		On_NewState(current_state);
+	}
 }
 
 void Initialise_States(void)
 {
     //                               S   D    A   LD    LS   MS  MD   RS   RD   XV   XS    W   WS
-	static const uint8_t test[16] = {16, 16, 255,   0,   0,   0,   0,   0,   0, 255,   0, 255, 255}; // Test
+	static const uint8_t tsti[16] = {16, 16, 255,  19,  19,  19,  19,  19,  19, 255,   0,  15,  19}; // Test Initial
 	static const uint8_t nprb[16] = {17, 17, 255,  22, 255, 255,  22, 255,  22, 255,   0, 255, 255}; // Network Problem
+	static const uint8_t tstn[16] = {26, 16, 255, 255, 255, 255, 255, 255, 255, 255,   0,  10,   0}; // Test Next
 	static const uint8_t init[16] = {19, 19, 255,  20, 255, 255,  20, 255,  20, 255, 255, 255, 255}; // Push to Connect
 	static const uint8_t conn[16] = {20, 20, 255, 255, 255, 255, 255, 255, 255,   2,  21, 255, 255}; // Connecting
 	static const uint8_t conf[16] = {21, 21, 255,  19,  19,  19,  19,  19,  19,  13,   0, 255, 255}; // Configuring
 	static const uint8_t strt[16] = {22, 22, 255,   0, 255, 255,   0, 255,   0,  13,   0, 255, 255}; // Double-push to start
 	static const uint8_t prob[16] = {23, 23, 255,  22, 255, 255,  22, 255,  22,  255,  0, 255, 255}; // Comms Problem
 	static const uint8_t ngnt[16] = {24, 24, 255,  20,  20,  20,  20,  20,  20, 255, 255, 255, 255}; // include_not
-	memcpy(states[STATE_TEST], test, sizeof(test));
+	memcpy(states[STATE_TEST], tsti, sizeof(tsti));
+	memcpy(states[STATE_TEST_NEXT], tstn, sizeof(tstn));
 	memcpy(states[STATE_INITIAL], init, sizeof(init));
 	memcpy(states[STATE_NETWORK_PROBLEM], nprb, sizeof(nprb));
 	memcpy(states[STATE_CONNECTING], conn, sizeof(conn));
