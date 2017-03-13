@@ -59,7 +59,7 @@
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
 //#define CB_DEMO_0
-#define VERSION					6
+#define VERSION					7
 #define FONT_2 					Arial_Narrow14x20
 //#define FONT_2 					Arial_Unicode_MS17x20
 #define FONT_3 					Arial_Narrow18x26
@@ -145,6 +145,12 @@
 #define S_WS					12
 
 #define MODE				  	OPERATIONAL
+#define EEPROM_START			0x8080000
+#define SCREENS_START 			EEPROM_START + 0x10
+#define STATES_START 			SCREENS_START + 16*194
+#define	AUTO_RESET_ADDR 		EEPROM_START
+#define CONFIG_STORED_ADDR 		EEPROM_START + 4
+#define ADDRESSES_ADDR			EEPROM_START + 8
 
 uint8_t 			node_id[] 				= {0x00, 0x00, 0x00, 0x00};
 
@@ -187,11 +193,11 @@ uint8_t				display_initialised		= 0;
 int8_t 				temperature;
 int8_t 				rssi;
 uint8_t				using_side				= BOTH_SIDES;
-uint8_t				irq_enabled				= 0;
+uint8_t				display_irq_enabled		= 0;
 uint8_t				no_long_check			= 0;
 uint16_t			loop_catcher			= 0;
-uint32_t 			Eeprom_addr 			= 0x08080000;
 uint32_t 			auto_reset;
+uint8_t				prepare_reset 			= 0;
 
 typedef enum {initial, normal, pressed, search, search_failed, reverting, demo} NodeState;
 NodeState         node_state           = initial;
@@ -228,6 +234,8 @@ int Read_Battery(uint8_t send);
 int8_t Get_RSSI(void);
 void Configure_And_Test(uint8_t reset);
 int8_t Get_Temperature(void);
+void Write_Eeprom(void);
+void Read_Eeprom(void);
 
 /* USER CODE END PFP */
 
@@ -294,30 +302,28 @@ int main(void)
   DEBUG_TX(debug_buff);
   Load_Normal_Screens();
   Initialise_States();
-  ecog_init();
-  ecog_printfc(FONT_3, 4, "SPUR");
-  ecog_printfc(FONT_3, 34, "Resetting");
-  ecog_printfc(FONT_3, 64, "Please wait");
-  ecog_update_display(0);
-
-  /*
-  uint32_t addr = 0x08080000;
-  uint32_t auto_reset;
-  auto_reset = *(uint32_t *)(addr);
-  sprintf(debug_buff, "EEprom data before: %d\r\n", (int)auto_reset);
-  DEBUG_TX(debug_buff);
-  HAL_FLASHEx_DATAEEPROM_Unlock();
-  HAL_FLASHEx_DATAEEPROM_Program(FLASH_TYPEPROGRAMDATA_WORD, addr, 0x0A0A0A0A);
-  HAL_FLASHEx_DATAEEPROM_Lock();
-  auto_reset = *(uint32_t *)(addr);
-  sprintf(debug_buff, "EEprom data after: %d\r\n", (int)auto_reset);
-  DEBUG_TX(debug_buff);
-  */
-  auto_reset = *(uint32_t *)(Eeprom_addr);
+  auto_reset = *(uint32_t *)(AUTO_RESET_ADDR);
   sprintf(debug_buff, "auto_reset on reset: %d\r\n", (int)auto_reset);
   DEBUG_TX(debug_buff);
   if(!auto_reset)
+  {
+	  ecog_init();
+	  ecog_printfc(FONT_3, 4, "SPUR");
+	  ecog_printfc(FONT_3, 34, "Resetting");
+	  ecog_printfc(FONT_3, 64, "Please wait");
+	  ecog_update_display(0);
+	  // Switch on auto_reset so that it will be there in case of problems
+	  HAL_FLASHEx_DATAEEPROM_Unlock();
+	  HAL_FLASHEx_DATAEEPROM_Program(FLASH_TYPEPROGRAMDATA_WORD, AUTO_RESET_ADDR, 0x0A0A0A0A);
+	  HAL_FLASHEx_DATAEEPROM_Lock();
 	  Configure_And_Test(1);
+  }
+  else
+  {
+	  Read_Eeprom();
+	  current_state = STATE_NORMAL;
+	  On_NewState(0);
+  }
   Radio_Off();
   for(i=0; i<4; i++)
 	  tx_data[i] = node_id[i];
@@ -331,13 +337,6 @@ int main(void)
 	  HAL_UART_MspDeInit(&huart1);
 	  HAL_PWR_EnterSTOPMode(PWR_LOWPOWERREGULATOR_ON, PWR_STOPENTRY_WFI);
   }
-  else
-  {
-	  // Set back to manual reset
-	  HAL_FLASHEx_DATAEEPROM_Unlock();
-	  HAL_FLASHEx_DATAEEPROM_Program(FLASH_TYPEPROGRAMDATA_WORD, Eeprom_addr, 0x00000000);
-	  HAL_FLASHEx_DATAEEPROM_Lock();
-  }
 
   /* USER CODE END 2 */
 
@@ -345,16 +344,16 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  /* Configures system clock after wake-up from STOP: enable HSE, PLL and select
-	  PLL as system clock source (HSE and PLL are disabled in STOP mode) */
 	  if(auto_reset)
 	  {
 		  DEBUG_TX("Starting after auto reset\r\n\0");
 		  auto_reset = 0;
 		  display_name_screen = 0;
-		  include_state = 0;
-	  	  Network_Include();
+		  //include_state = 0;
+	  	  //Network_Include();
 	  }
+	  /* Configures system clock after wake-up from STOP: enable HSE, PLL and select
+	  PLL as system clock source (HSE and PLL are disabled in STOP mode) */
 	  if(stop_mode)
 	  {
 		  //SysTick->CTRL  |= SysTick_CTRL_TICKINT_Msk;            // systick IRQ on
@@ -364,19 +363,24 @@ int main(void)
 	  }
 	  if(button_irq)
 	  {
-		  HAL_NVIC_DisableIRQ(EXTI3_IRQn);
-		  HAL_NVIC_DisableIRQ(EXTI15_10_IRQn);
-		  loop_catcher = 0;
-		  Delay_ms(20);
-		  button_state = HAL_GPIO_ReadPin(GPIOA, pressed_button);
-		  sprintf(debug_buff, "Button IRQ: state: %d\r\n", button_state);
-		  DEBUG_TX(debug_buff);
-		  On_Button_IRQ(BUTTON_PRESSED, pressed_button, button_state);
-		  if(irq_enabled)
-			  irq_enabled = 0;
-		  else
-			  Enable_IRQ(using_side);
-		  button_irq = 0;
+		  while(button_irq)
+		  {
+			  HAL_NVIC_DisableIRQ(EXTI3_IRQn);
+			  HAL_NVIC_DisableIRQ(EXTI15_10_IRQn);
+			  loop_catcher = 0;
+			  button_irq = 0;
+			  Delay_ms(20);
+			  button_state = HAL_GPIO_ReadPin(GPIOA, pressed_button);
+			  sprintf(debug_buff, "Button IRQ: state: %d\r\n", button_state);
+			  DEBUG_TX(debug_buff);
+			  On_Button_IRQ(BUTTON_PRESSED, pressed_button, button_state);
+			  DEBUG_TX("Finished On_Button_IRQ\r\n\0");
+			  if(!display_irq_enabled)
+			  {
+				  DEBUG_TX("display_irq disabled\r\n\0");
+				  Enable_IRQ(using_side);
+			  }
+		  }
 	  }
 	  else if(rtc_irq)
 	  {
@@ -410,22 +414,21 @@ int main(void)
 			  last_press_sixteenths[side] = 0;
 		  stop_mode = 1;  // Just in case we got here without
 		  stop_mode_0_count = 0;  // Reset the trap that stops us looping under error conditions
-		  if(irq_enabled)
-			  irq_enabled = 0;
-		  else
-			  Enable_IRQ(using_side);
 		  if(!button_irq)
 		  {
+			  DEBUG_TX("No button_irq\r\n\0");
 			  Delay_ms(20);
-			  button_irq = 0;  // Seemed to be missed above
+			  using_side = BOTH_SIDES;
+			  Enable_IRQ(using_side);
+			  display_irq_enabled = 0;
 			  loop_catcher++;
 			  Radio_Off();
 			  if(loop_catcher > 10)  // We're spinning round and not going into stop mode
 			  {
-				  DEBUG_TX("Loop catcher system reset, setting EEPROM\r\n\0");
+				  DEBUG_TX("Loop catcher reset\r\n\0");
 				  Delay_ms(1000);
 				  HAL_FLASHEx_DATAEEPROM_Unlock();
-				  HAL_FLASHEx_DATAEEPROM_Program(FLASH_TYPEPROGRAMDATA_WORD, Eeprom_addr, 0x0A0A0A0A);
+				  HAL_FLASHEx_DATAEEPROM_Program(FLASH_TYPEPROGRAMDATA_WORD, AUTO_RESET_ADDR, 0x0A0A0A0A);
 				  HAL_FLASHEx_DATAEEPROM_Lock();
 				  NVIC_SystemReset();
 			  }
@@ -745,14 +748,23 @@ uint8_t On_Button_Press(uint16_t button_pressed, uint16_t GPIO_Pin, GPIO_PinStat
 		return PRESS_NONE;
 
 	now = Cbr_Now();
-	//check_double = 1;
-	//sprintf(debug_buff,"16th now: %u, last %u, side: %d, state: %d\r\n", SIXTEENTHS_NOW, last_press_sixteenths[side], (int)side, (int)button_state);
-	//DEBUG_TX(debug_buff);
-	//button_state = HAL_GPIO_ReadPin(GPIOA, GPIO_Pin);
-	//sprintf(debug_buff, "side: %d, doub: %d:%d, long: %d:%d, state: %d, pressed: %d\r\n",
-	//		side, check_double[0], check_double[1], check_long[0], check_long[1],
-	//		button_state, button_pressed);
-	//DEBUG_TX(debug_buff);
+	if(display_irq_enabled && button_state == GPIO_PIN_SET)  // Button pressed & released while display is being drawn
+	{
+		display_irq_enabled = 0;
+		button_irq = 0;
+		if(side == LEFT_SIDE)
+		{
+			DEBUG_TX("HL\r\n\0");
+			return PRESS_LEFT_SINGLE;
+		}
+		else if(side == RIGHT_SIDE)
+		{
+			DEBUG_TX("HR\r\n\0");
+			return PRESS_RIGHT_SINGLE;
+		}
+		else
+			return PRESS_NONE;
+	}
 	if(button_pressed && (button_state == GPIO_PIN_RESET))
 	{
 		no_long_check = 0;
@@ -813,11 +825,9 @@ uint8_t On_Button_Press(uint16_t button_pressed, uint16_t GPIO_Pin, GPIO_PinStat
 			//DEBUG_TX(debug_buff);
 			if((pressed_time > T_RESET_PRESS) && (pressed_time < T_MAX_RESET_PRESS) && (button_pressed))
 			{
-				DEBUG_TX("User initiated system reset, setting EEPROM\r\n\0");
-				HAL_FLASHEx_DATAEEPROM_Unlock();
-				HAL_FLASHEx_DATAEEPROM_Program(FLASH_TYPEPROGRAMDATA_WORD, Eeprom_addr, 0x0a0a0a0a);
-				HAL_FLASHEx_DATAEEPROM_Lock();
-				NVIC_SystemReset();
+				DEBUG_TX("Prepare reset\r\n\0");
+				prepare_reset = 1;
+				return PRESS_NONE;
 			}
 			else if((pressed_time > T_LONG_PRESS) && (pressed_time < T_MAX_RESET_PRESS))
 			{
@@ -950,11 +960,21 @@ void On_Button_IRQ(uint16_t button_pressed, uint16_t GPIO_Pin, GPIO_PinState but
 		DEBUG_TX("Node state demo\r\n\0");
 		if ((button_press == PRESS_RIGHT_LONG) || (button_press == PRESS_LEFT_LONG))
 			screen_num = 0;
+		else if ((button_press == PRESS_RIGHT_DOUBLE) && prepare_reset)
+		{
+			DEBUG_TX("User initiated reset\r\n\0");
+			HAL_FLASHEx_DATAEEPROM_Unlock();
+			HAL_FLASHEx_DATAEEPROM_Program(FLASH_TYPEPROGRAMDATA_WORD, AUTO_RESET_ADDR, 0x00000000);
+			HAL_FLASHEx_DATAEEPROM_Lock();
+			NVIC_SystemReset();
+		}
 		else
+		{
 			screen_num++;
-		if (screen_num == MAX_SCREEN)
-			screen_num = 0;
-		stop_mode = 1;
+			if (screen_num == MAX_SCREEN)
+				screen_num = 0;
+			stop_mode = 1;
+		}
 		Set_Display(screen_num);
 	}
 	else
@@ -963,6 +983,7 @@ void On_Button_IRQ(uint16_t button_pressed, uint16_t GPIO_Pin, GPIO_PinState but
 		switch(button_press)
 		{
 			case PRESS_LEFT_SINGLE:
+				prepare_reset = 0;
 				if(states[current_state][S_LS] != 0xFF)
 				{
 					changed = 1;
@@ -970,6 +991,7 @@ void On_Button_IRQ(uint16_t button_pressed, uint16_t GPIO_Pin, GPIO_PinState but
 				}
 				break;
 			case PRESS_LEFT_DOUBLE:
+				prepare_reset = 0;
 				if(states[current_state][S_LD] != 0xFF)
 				{
 					changed = 1;
@@ -977,6 +999,7 @@ void On_Button_IRQ(uint16_t button_pressed, uint16_t GPIO_Pin, GPIO_PinState but
 				}
 				break;
 			case PRESS_RIGHT_SINGLE:
+				prepare_reset = 0;
 				if(states[current_state][S_RS] != 0xFF)
 				{
 					changed = 1;
@@ -984,6 +1007,16 @@ void On_Button_IRQ(uint16_t button_pressed, uint16_t GPIO_Pin, GPIO_PinState but
 				}
 				break;
 			case PRESS_RIGHT_DOUBLE:
+				if(prepare_reset == 1)
+				{
+					DEBUG_TX("User initiated reset\r\n\0");
+					HAL_FLASHEx_DATAEEPROM_Unlock();
+					HAL_FLASHEx_DATAEEPROM_Program(FLASH_TYPEPROGRAMDATA_WORD, AUTO_RESET_ADDR, 0x00000000);
+					HAL_FLASHEx_DATAEEPROM_Lock();
+					NVIC_SystemReset();
+				}
+				else
+					prepare_reset = 0;
 				if(states[current_state][S_RD] != 0xFF)
 				{
 					changed = 1;
@@ -992,6 +1025,8 @@ void On_Button_IRQ(uint16_t button_pressed, uint16_t GPIO_Pin, GPIO_PinState but
 				break;
 			case PRESS_LEFT_LONG:
 			case PRESS_RIGHT_LONG:
+				prepare_reset = 1;
+				DEBUG_TX("prepare_reset 1\r\n\0");
 				current_state = STATE_TEST_NEXT;
 				Configure_And_Test(0);
 				return;
@@ -1004,7 +1039,7 @@ void On_Button_IRQ(uint16_t button_pressed, uint16_t GPIO_Pin, GPIO_PinState but
 		else if(!changed)
 		{
 		    DEBUG_TX("Press not used in this state\r\n\0");
-			Set_Display(current_state);
+			//Set_Display(current_state);
 			stop_mode = 1;
 		}
 	}
@@ -1478,8 +1513,10 @@ void Listen_Radio(uint8_t reset_fail_count, uint8_t no_listen)
 		else if(Rx_Buffer[4] == f_start)
 		{
 			DEBUG_TX("Listen_Radio. Start received\r\n\0");
+			Write_Eeprom();
 			if(display_name_screen)
 			{
+				display_name_screen = 0;  // Only go to STATE_START after a manual reset
 				current_state = STATE_START;
 			}
 			else
@@ -1632,6 +1669,7 @@ void Store_Config(int length)
 
 int Read_Battery(uint8_t send)
 {
+	/*
 	const uint16_t adc2volts[] =
 	{0, 2, 5, 7, 9, 12, 14, 16, 19, 21, 24, 26, 28, 31, 33, 35, 38, 40, 42, 45, 47, 49, 52, 54, 57, 59, 61,
 	64, 66, 68, 71, 73, 75, 78, 80, 82, 85, 87, 90, 92, 94, 97, 99, 101, 104, 106, 108, 111, 113, 115, 118,
@@ -1645,9 +1683,11 @@ int Read_Battery(uint8_t send)
 	467, 469, 471, 474, 476, 478, 481, 483, 485, 488, 490, 493, 495, 497, 500, 502, 504, 507, 509, 511, 514,
 	516, 518, 521, 523, 526, 528, 530, 533, 535, 537, 540, 542, 544, 547, 549, 551, 554, 556, 559, 561, 563,
 	566, 568, 570, 573, 575, 577, 580, 582, 584, 587, 589, 592, 594, 596, 599, 601};
+	*/
 
 	uint32_t adc_value = 0x55;
 	uint8_t alert[] = {0x02, 0x00, 0x00, 0x00};
+	uint16_t adc2volts;
 	int volts = 0;
 
 	MX_ADC_Init();
@@ -1670,17 +1710,39 @@ int Read_Battery(uint8_t send)
 	else
 	{
 		adc_value = HAL_ADC_GetValue(&hadc);
+		adc2volts = adc_value >> 8;
 		HAL_ADC_Stop(&hadc);
 		HAL_ADC_DeInit(&hadc);
 		HAL_GPIO_WritePin(GPIOB, BATT_READ_Pin, GPIO_PIN_RESET);
-		volts = adc2volts[adc_value >> 8];
-		sprintf(debug_buff, "ADC battery value: %x, volts %d.%d\r\n", (int)adc_value, (int)(volts/100), volts%100);
+		if(adc2volts < 0x9F)
+			volts = 370;
+		else if(adc2volts > 0xA9)
+			volts = 290;
+		else
+			switch(adc2volts)
+			{
+				case 0x9F: volts = 365; break;
+				case 0xA0: volts = 360; break;
+				case 0xA1: volts = 350; break;
+				case 0xA2: volts = 345; break;
+				case 0xA3: volts = 335; break;
+				case 0xA4: volts = 330; break;
+				case 0xA5: volts = 320; break;
+				case 0xA6: volts = 315; break;
+				case 0xA7: volts = 310; break;
+				case 0xA8: volts = 300; break;
+				case 0xA9: volts = 295; break;
+			}
+		//volts = adc2volts[adc_value >> 8];
+		sprintf(debug_buff, "ADC battery value: %x, volts %d.%d\r\n", (int)adc2volts, (int)(volts/100), volts%100);
 		DEBUG_TX(debug_buff);
 		if(send)
 		{
-			alert[1] = adc_value >> 8;
+			alert[1] = adc2volts;
+			Radio_On(1);
 			alert[2] = Get_RSSI();
 			alert[3] = Get_Temperature();
+			Radio_Off();
 			sprintf(debug_buff, "Sending alert: %x %x %x %x\r\n", alert[0], alert[1], alert[2], alert[3]);
 			DEBUG_TX(debug_buff);
 			Send_Message(f_alert, 4, alert, 1, 0);
@@ -1977,15 +2039,17 @@ void Configure_And_Test(uint8_t reset)
 void Initialise_States(void)
 {
     //                               S   D    A   LD    LS   MS  MD   RS   RD   XV   XS    W   WS
-	static const uint8_t tsti[16] = {16, 16, 255,  19,  19,  19,  19,  19,  19, 255,   0,  15,  19}; // Test Initial
-	static const uint8_t nprb[16] = {17, 17, 255,  22, 255, 255,  22, 255,  22, 255,   0, 255, 255}; // Network Problem
-	static const uint8_t tstn[16] = {26, 16, 255, 255, 255, 255, 255, 255, 255, 255,   0,  10,   0}; // Test Next
-	static const uint8_t init[16] = {19, 19, 255,  20, 255, 255,  20, 255,  20, 255, 255, 255, 255}; // Push to Connect
-	static const uint8_t conn[16] = {20, 20, 255, 255, 255, 255, 255, 255, 255,   2,  21, 255, 255}; // Connecting
-	static const uint8_t conf[16] = {21, 21, 255,  19,  19,  19,  19,  19,  19,  13,   0, 255, 255}; // Configuring
-	static const uint8_t strt[16] = {22, 22, 255,   0, 255, 255,   0, 255,   0,  13,   0, 255, 255}; // Double-push to start
-	static const uint8_t prob[16] = {23, 23, 255,  22, 255, 255,  22, 255,  22,  255,  0, 255, 255}; // Comms Problem
-	static const uint8_t ngnt[16] = {24, 24, 255,  20,  20,  20,  20,  20,  20, 255, 255, 255, 255}; // include_not
+	static const uint8_t norm[16] = {16,  16, 255,  16,  16,  16,  16,  16,  16, 255,   0,   2,  16}; // Normal
+	static const uint8_t tsti[16] = {16,  16, 255,  19,  19,  19,  19,  19,  19, 255,   0,  15,  19}; // Test Initial
+	static const uint8_t nprb[16] = {17,  17, 255,  22, 255, 255,  22, 255,  22, 255,   0, 255, 255}; // Network Problem
+	static const uint8_t tstn[16] = {16,  16, 255, 255, 255, 255, 255, 255, 255, 255,   0,   6,   0}; // Test Next
+	static const uint8_t init[16] = {19,  19, 255,  20, 255, 255,  20, 255,  20, 255, 255, 255, 255}; // Push to Connect
+	static const uint8_t conn[16] = {20,  20, 255, 255, 255, 255, 255, 255, 255,   2,  21, 255, 255}; // Connecting
+	static const uint8_t conf[16] = {21,  21, 255,  19,  19,  19,  19,  19,  19,  13,   0, 255, 255}; // Configuring
+	static const uint8_t strt[16] = {22,  22, 255,   0, 255, 255,   0, 255,   0,  13,   0, 255, 255}; // Double-push to start
+	static const uint8_t prob[16] = {23,  23, 255,  22, 255, 255,  22, 255,  22,  255,  0, 255, 255}; // Comms Problem
+	static const uint8_t ngnt[16] = {24,  24, 255,  20,  20,  20,  20,  20,  20, 255, 255, 255, 255}; // include_not
+	memcpy(states[STATE_NORMAL], tsti, sizeof(norm));
 	memcpy(states[STATE_TEST], tsti, sizeof(tsti));
 	memcpy(states[STATE_TEST_NEXT], tstn, sizeof(tstn));
 	memcpy(states[STATE_INITIAL], init, sizeof(init));
@@ -1996,6 +2060,85 @@ void Initialise_States(void)
 	memcpy(states[STATE_PROBLEM], prob, sizeof(prob));
 	memcpy(states[STATE_NOT_GRANT], ngnt, sizeof(ngnt));
 }
+
+void Write_Eeprom(void)
+{
+	// Writes these structures to EEPROM
+	//char 				screens[MAX_SCREEN][1][194];
+	//uint8_t			states[28][16] 			= {0xFF};
+	uint32_t 			addr;
+	uint32_t			data;
+	uint32_t			i, j;
+	DEBUG_TX("Write_Eeprom\r\n\0");
+	HAL_FLASHEx_DATAEEPROM_Unlock();
+    HAL_FLASHEx_DATAEEPROM_EnableFixedTimeProgram();
+	for(i=0; i<16; i++)
+		for(j=0; j<49; j++)
+		{
+			addr = SCREENS_START + i*196 + j*4;
+			data = (screens[i][0][j*4] << 24) | (screens[i][0][j*4+1] <<16) | (screens[i][0][j*4+2] << 8) | screens[i][0][j*4+3];
+			//sprintf(debug_buff, "Writing1 %x to %x\r\n", (unsigned int)data, (unsigned int)addr);
+		    //DEBUG_TX(debug_buff);
+			//HAL_FLASHEx_DATAEEPROM_Erase(FLASH_TYPEERASEDATA_WORD, addr);
+			HAL_FLASHEx_DATAEEPROM_Program(FLASH_TYPEPROGRAMDATA_WORD, addr, data);
+		}
+	for(i=0; i<16; i++)
+		for(j=0; j<5; j++)
+		{
+			addr = STATES_START + i*16 + j*4;
+			data = (states[i][j*4] << 24) | (states[i][j*4+1] << 16) | (states[i][j*4+2] << 8) | (states[i][j*4+3]);
+			//sprintf(debug_buff, "Writing2 %x to %x\r\n", (unsigned int)data, (unsigned int)addr);
+		    //DEBUG_TX(debug_buff);
+			//HAL_FLASHEx_DATAEEPROM_Erase(FLASH_TYPEERASEDATA_WORD, addr);
+			HAL_FLASHEx_DATAEEPROM_Program(FLASH_TYPEPROGRAMDATA_WORD, addr, data);
+		}
+	//HAL_FLASHEx_DATAEEPROM_Unlock();
+	//HAL_FLASHEx_DATAEEPROM_EnableFixedTimeProgram();
+    //HAL_FLASHEx_DATAEEPROM_Program(FLASH_TYPEPROGRAMDATA_WORD, CONFIG_STORED_ADDR, 0x0A0A0A0A);
+    data = (node_address[0] << 24) | (node_address[1] << 16) | (bridge_address[0] << 8) | bridge_address[1];
+	//HAL_FLASHEx_DATAEEPROM_Unlock();
+    //HAL_FLASHEx_DATAEEPROM_EnableFixedTimeProgram();
+    HAL_FLASHEx_DATAEEPROM_Program(FLASH_TYPEPROGRAMDATA_WORD, ADDRESSES_ADDR, data);
+	HAL_FLASHEx_DATAEEPROM_Lock();
+}
+
+void Read_Eeprom(void)
+{
+	uint32_t 			addr;
+	uint32_t			data;
+	uint32_t			i, j;
+	DEBUG_TX("Read_Eeprom\r\n\0");
+	for(i=0; i<16; i++)
+		for(j=0; j<49; j++)
+		{
+			addr = SCREENS_START + i*196 + j*4;
+			data = *(uint32_t *)(addr);
+			//sprintf(debug_buff, "Reading1 %x from %x\r\n", (unsigned int)data, (unsigned int)addr);
+		    //DEBUG_TX(debug_buff);
+			screens[i][0][j*4] = (data & 0xFF000000) >> 24;
+			screens[i][0][j*4+1] = (data & 0x00FF0000) >> 16;
+			screens[i][0][j*4+2] = (data & 0x0000FF00) >> 8;
+			screens[i][0][j*4+3] = data & 0x000000FF;
+		}
+	for(i=0; i<16; i++)
+		for(j=0; j<5; j++)
+		{
+			addr = STATES_START + i*16 + j*4;
+			data = *(uint32_t *)(addr);
+			//sprintf(debug_buff, "Reading2 %x from %x\r\n", (unsigned int)data, (unsigned int)addr);
+		    //DEBUG_TX(debug_buff);
+			states[i][j*4] = (data & 0xFF000000) >> 24;
+			states[i][j*4+1] = (data & 0x00FF0000) >> 16;
+			states[i][j*4+2] = (data & 0x0000FF00) >> 8;
+			states[i][j*4+3] = data & 0x000000FF;
+		}
+	data = *(uint32_t *)(ADDRESSES_ADDR);
+    node_address[0] = (data & 0xFF000000) >> 24;
+    node_address[1] = (data & 0x00FF0000) >> 16;
+    bridge_address[0] = (data & 0x0000FF00) >> 8;
+    bridge_address[1] = data & 0x000000FF;
+}
+
 /* USER CODE END 4 */
 
 #ifdef USE_FULL_ASSERT

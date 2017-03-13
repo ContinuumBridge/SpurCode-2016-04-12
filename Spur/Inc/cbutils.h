@@ -55,7 +55,7 @@ extern uint8_t 			button_irq;
 extern char 			debug_buff[128];
 extern int8_t 			temperature;
 extern uint8_t			using_side;
-extern uint8_t			irq_enabled;
+extern uint8_t			display_irq_enabled;
 
 void *array_concat(const void *a, size_t an, const void *b, size_t bn, size_t s);
 HAL_StatusTypeDef Radio_Tx(UART_HandleTypeDef *uart, uint8_t *buffer, uint16_t buffer_size);

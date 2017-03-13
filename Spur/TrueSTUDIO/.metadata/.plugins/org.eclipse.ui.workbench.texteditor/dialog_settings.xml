@@ -4,22 +4,26 @@
 	</section>
 	<section name="org.eclipse.ui.texteditor.FindReplaceDialog">
 		<item value="true" key="wrap"/>
-		<item value="false" key="casesensitive"/>
 		<item value="false" key="isRegEx"/>
+		<item value="false" key="casesensitive"/>
 		<item value="false" key="incremental"/>
 		<item value="false" key="wholeword"/>
-		<item value="#include" key="selection"/>
+		<item value="prepare_reset" key="selection"/>
 		<list key="findhistory">
-			<item value="RTC_IRQ"/>
-			<item value="#include"/>
-			<item value="On_NewState"/>
-			<item value="states"/>
-			<item value="PRESS_NONE"/>
-			<item value="Store_Config"/>
-			<item value="Store"/>
-			<item value="ENABLE_IRQ"/>
+			<item value="prepare_reset"/>
+			<item value="reset"/>
+			<item value="Start received"/>
+			<item value="ADDRESSES_ADDR"/>
+			<item value="CONFIG_STORED_ADDR"/>
+			<item value="config_stored_addr"/>
+			<item value="AUTO_RESET_ADDR"/>
+			<item value="auto_reset_addr"/>
 		</list>
 		<list key="replacehistory">
+			<item value="CONFIG_STORED_ADDR"/>
+			<item value="AUTO_RESET_ADDR"/>
+			<item value="auto_reset_addr"/>
+			<item value="auto_reset"/>
 		</list>
 	</section>
 </section>
