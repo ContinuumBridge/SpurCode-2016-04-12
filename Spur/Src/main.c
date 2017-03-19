@@ -197,6 +197,7 @@ uint8_t				display_irq_enabled		= 0;
 uint8_t				no_long_check			= 0;
 uint16_t			loop_catcher			= 0;
 uint32_t 			auto_reset;
+uint32_t 			new_button				= 0;
 uint8_t				prepare_reset 			= 0;
 
 typedef enum {initial, normal, pressed, search, search_failed, reverting, demo} NodeState;
@@ -303,9 +304,10 @@ int main(void)
   Load_Normal_Screens();
   Initialise_States();
   auto_reset = *(uint32_t *)(AUTO_RESET_ADDR);
-  sprintf(debug_buff, "auto_reset on reset: %d\r\n", (int)auto_reset);
+  new_button = !(*(uint32_t *)(SCREENS_START));
+  sprintf(debug_buff, "auto_reset on reset: %d, new_button: %d\r\n", (int)auto_reset, (int)new_button);
   DEBUG_TX(debug_buff);
-  if(!auto_reset)
+  if(!auto_reset || new_button)
   {
 	  ecog_init();
 	  ecog_printfc(FONT_3, 4, "SPUR");
@@ -349,8 +351,6 @@ int main(void)
 		  DEBUG_TX("Starting after auto reset\r\n\0");
 		  auto_reset = 0;
 		  display_name_screen = 0;
-		  //include_state = 0;
-	  	  //Network_Include();
 	  }
 	  /* Configures system clock after wake-up from STOP: enable HSE, PLL and select
 	  PLL as system clock source (HSE and PLL are disabled in STOP mode) */

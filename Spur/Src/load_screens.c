@@ -23,7 +23,23 @@ void Load_Normal_Screens(void)
 {
 	// Not very elegant, but it does the job and it shouldn't need to change:
 	int i, s;
-	//char buff[25];
+	strcpy(screens[0][0], "F\x03" "Y\x18" "C\x08" "Screen 0\xFF" "Y\x56" "C\x0F" "Please reset me\xFF" "ES");
+	strcpy(screens[1][0], "F\x03" "Y\x38" "C\x08" "Screen 1\xFF" "ES");
+	strcpy(screens[2][0], "F\x03" "Y\x38" "C\x08" "Screen 2\xFF" "ES");
+	strcpy(screens[3][0], "F\x03" "Y\x38" "C\x08" "Screen 3\xFF" "ES");
+	strcpy(screens[4][0], "F\x03" "Y\x38" "C\x08" "Screen 4\xFF" "ES");
+	strcpy(screens[5][0], "F\x03" "Y\x38" "C\x08" "Screen 5\xFF" "ES");
+	strcpy(screens[6][0], "F\x03" "Y\x38" "C\x08" "Screen 6\xFF" "ES");
+	strcpy(screens[7][0], "F\x03" "Y\x38" "C\x08" "Screen 7\xFF" "ES");
+	strcpy(screens[8][0], "F\x03" "Y\x38" "C\x08" "Screen 8\xFF" "ES");
+	strcpy(screens[9][0], "F\x03" "Y\x38" "C\x08" "Screen 9\xFF" "ES");
+	strcpy(screens[10][0], "F\x03" "Y\x38" "C\x09" "Screen 10\xFF" "ES");
+	strcpy(screens[11][0], "F\x03" "Y\x38" "C\x09" "Screen 11\xFF" "ES");
+	strcpy(screens[12][0], "F\x03" "Y\x38" "C\x09" "Screen 12\xFF" "ES");
+	strcpy(screens[13][0], "F\x03" "Y\x38" "C\x09" "Screen 13\xFF" "ES");
+	strcpy(screens[14][0], "F\x03" "Y\x38" "C\x09" "Screen 14\xFF" "ES");
+	strcpy(screens[15][0], "F\x03" "Y\x38" "C\x09" "Screen 15\xFF" "ES");
+	strcpy(screens[16][0], "F\x03" "Y\x38" "C\x09" "Screen 16\xFF" "ES");
 	strcpy(screens[17][0], "F\x03" "Y\x05" "C\x07" "Network\xFF" "Y\x20" "C\x07" "problem\xFF" "Y\x3D"
 			              	  "C\x0A" "Not in use\xFF" "ES");
 	strcpy(screens[18][0], "F\x02" "Y\x12" "C\x0B" "Working ...\xFF" "F\x03" "Y\x38" "C\x0B" "Please wait\xFF" "ES");
@@ -44,7 +60,7 @@ void Load_Normal_Screens(void)
 	screens[24][0][4] = 0x43;  // C
 	strcpy(screens[24][0] + 26, "Y\x1A" "C\x14" "ID not registered in\xFF"
 			              "Y\x30" "C\x1A" "portal.spur.site. Enter it\xFF" "Y\x46" "C\x19" "then push here to connect\xFF" "ES");
-	for(s=17; s<25; s++)
+	for(s=0; s<25; s++)
 		for(i=0; i<128; i++)
 			if(screens[s][0][i] == 0xFF)
 				screens[s][0][i] = 0x00;
