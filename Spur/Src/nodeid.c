@@ -14,7 +14,7 @@
 #include "nodeid.h"
 
 // Last: 659
-const uint32_t node_id_int = 517;
+const uint32_t node_id_int = 17;
 
 void Set_Node_ID(uint8_t *node_id)
 {

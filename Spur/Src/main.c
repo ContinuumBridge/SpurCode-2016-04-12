@@ -112,6 +112,7 @@
 #define  f_include_not         	0x0D
 #define  f_configuring			0x0E
 #define	 f_unknown				0x0F
+#define	 f_reset				0xFF
 
 #define PRESS_LEFT_SINGLE	  	0
 #define PRESS_RIGHT_SINGLE    	1
@@ -346,12 +347,6 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  if(auto_reset)
-	  {
-		  DEBUG_TX("Starting after auto reset\r\n\0");
-		  auto_reset = 0;
-		  display_name_screen = 0;
-	  }
 	  /* Configures system clock after wake-up from STOP: enable HSE, PLL and select
 	  PLL as system clock source (HSE and PLL are disabled in STOP mode) */
 	  if(stop_mode)
@@ -360,6 +355,13 @@ int main(void)
 		  SYSCLKConfig_STOP();
 		  HAL_UART_MspInit(&huart1);
 		  DEBUG_TX("*** Main ***\r\n\0");
+	  }
+	  if(auto_reset)
+	  {
+		  DEBUG_TX("Starting after auto reset\r\n\0");
+		  auto_reset = 0;
+		  display_name_screen = 0;
+		  RTC_Delay(60);
 	  }
 	  if(button_irq)
 	  {
@@ -1101,9 +1103,11 @@ void Network_Include(void)
 {
 	uint8_t equal = 1;
 	uint8_t tx_data[6];
+	uint8_t try_again = 0;
 	int i;
 
-	DEBUG_TX("Network_Include\r\n\0");
+	sprintf(debug_buff,"Network_Include. include_state: %d\r\n", (int)include_state);
+	DEBUG_TX(debug_buff);
 	if(include_state == 0)
 	{
 		node_address[0] = 0; node_address[1] = 0;  // Reset to not knowing network address
@@ -1128,6 +1132,46 @@ void Network_Include(void)
 		Send_Message(f_include_req, 6, tx_data, 0, 0);
 	}
 	else
+		try_again = 1;
+
+	if(Message_Search(grant_address, Rx_Buffer, &length, BEACON_SEARCH_TIME) == SEARCH_OK)
+	{
+		equal = 1;
+		for(i=0; i<4; i++)
+			if(Rx_Buffer[i+12] != node_id[i])
+			{
+				equal = 0;
+				break;
+			}
+		if(equal)
+		{
+			if(Rx_Buffer[4] == f_include_grant)
+			{
+				DEBUG_TX("Received grant\r\n\0");
+				node_address[0] = Rx_Buffer[16]; node_address[1] = Rx_Buffer[17];
+				uint8_t data[] = {0x00, 0x00};
+				Send_Message(f_ack, 0, data, 0, 0);
+				DEBUG_TX("Sent ack for grant\r\n\0");
+				include_state = 0;
+				current_state = STATE_CONFIG;
+				On_NewState(1);
+				DEBUG_TX("Sending woken_up after grant\r\n\0");
+				Send_Message(f_woken_up, 0, data, 1, 0);
+			}
+			else if(Rx_Buffer[4] == f_include_not)
+			{
+				DEBUG_TX("Received include_not\r\n\0");
+				current_state = STATE_NOT_GRANT;
+				On_NewState(1);
+			}
+		}
+	}
+	else
+	{
+		DEBUG_TX("Network_Include. Did not receive grant\r\n\0");
+		try_again = 1;
+	}
+	if(try_again)
 	{
 		switch(include_state)
 		{
@@ -1165,43 +1209,6 @@ void Network_Include(void)
 				RTC_Delay(43200);
 		}
 		return;
-	}
-	if(Message_Search(grant_address, Rx_Buffer, &length, BEACON_SEARCH_TIME) == SEARCH_OK)
-	{
-		equal = 1;
-		for(i=0; i<4; i++)
-			if(Rx_Buffer[i+12] != node_id[i])
-			{
-				equal = 0;
-				break;
-			}
-		if(equal)
-		{
-			if(Rx_Buffer[4] == f_include_grant)
-			{
-				DEBUG_TX("Received grant\r\n\0");
-				node_address[0] = Rx_Buffer[16]; node_address[1] = Rx_Buffer[17];
-				uint8_t data[] = {0x00, 0x00};
-				Send_Message(f_ack, 0, data, 0, 0);
-				DEBUG_TX("Sent ack for grant\r\n\0");
-				include_state = 0;
-				current_state = STATE_CONFIG;
-				On_NewState(1);
-				DEBUG_TX("Sending woken_up after grant\r\n\0");
-				Send_Message(f_woken_up, 0, data, 1, 0);
-			}
-			else if(Rx_Buffer[4] == f_include_not)
-			{
-				DEBUG_TX("Received include_not\r\n\0");
-				current_state = STATE_NOT_GRANT;
-				On_NewState(1);
-			}
-		}
-	}
-	else
-	{
-		DEBUG_TX("Network_Include. Did not receive grant\r\n\0");
-		RTC_Delay(30);
 	}
 }
 
@@ -1544,6 +1551,15 @@ void Listen_Radio(uint8_t reset_fail_count, uint8_t no_listen)
 			DEBUG_TX("Listen_Radio. Ack received\r\n\0");
 			Set_Wakeup(0);
 		}
+		else if(Rx_Buffer[4] == f_reset)
+		{
+			  DEBUG_TX("Reset requested\r\n\0");
+			  Delay_ms(1000);
+			  HAL_FLASHEx_DATAEEPROM_Unlock();
+			  HAL_FLASHEx_DATAEEPROM_Program(FLASH_TYPEPROGRAMDATA_WORD, AUTO_RESET_ADDR, 0x0A0A0A0A);
+			  HAL_FLASHEx_DATAEEPROM_Lock();
+			  NVIC_SystemReset();
+		}
 		else
 		{
 			DEBUG_TX("Listen_Radio. Unknown message, sending ack\r\n\0");
@@ -1645,8 +1661,13 @@ void Store_Config(int length)
 		DEBUG_TX(debug_buff);
 		if(states[current_state][S_XV] == app_value)
 		{
-			current_state = states[current_state][S_XS];
-			On_NewState(1);
+			if(states[current_state][S_XS] == 0xFF)
+				Set_Display(states[current_state][S_XV]);
+			else
+			{
+				current_state = states[current_state][S_XS];
+				On_NewState(current_state);
+			}
 		}
 	}
 	else if(strncmp(Rx_Buffer+pos, "M", 1) == 0)
@@ -2041,13 +2062,13 @@ void Initialise_States(void)
     //                               S   D    A   LD    LS   MS  MD   RS   RD   XV   XS    W   WS
 	static const uint8_t norm[16] = {16,  16, 255,  16,  16,  16,  16,  16,  16, 255,   0,   2,  16}; // Normal
 	static const uint8_t tsti[16] = {16,  16, 255,  19,  19,  19,  19,  19,  19, 255,   0,  15,  19}; // Test Initial
-	static const uint8_t nprb[16] = {17,  17, 255,  22, 255, 255,  22, 255,  22, 255,   0, 255, 255}; // Network Problem
+	static const uint8_t nprb[16] = {17,  17, 255,   0,   0,   0,   0,   0,   0, 255,   0, 255, 255}; // Network Problem
 	static const uint8_t tstn[16] = {16,  16, 255, 255, 255, 255, 255, 255, 255, 255,   0,   6,   0}; // Test Next
 	static const uint8_t init[16] = {19,  19, 255,  20, 255, 255,  20, 255,  20, 255, 255, 255, 255}; // Push to Connect
 	static const uint8_t conn[16] = {20,  20, 255, 255, 255, 255, 255, 255, 255,   2,  21, 255, 255}; // Connecting
 	static const uint8_t conf[16] = {21,  21, 255,  19,  19,  19,  19,  19,  19,  13,   0, 255, 255}; // Configuring
 	static const uint8_t strt[16] = {22,  22, 255,   0, 255, 255,   0, 255,   0,  13,   0, 255, 255}; // Double-push to start
-	static const uint8_t prob[16] = {23,  23, 255,  22, 255, 255,  22, 255,  22,  255,  0, 255, 255}; // Comms Problem
+	static const uint8_t prob[16] = {23,  23, 255,   0,   0,   0,   0,   0,   0,  255,  0, 255, 255}; // Comms Problem
 	static const uint8_t ngnt[16] = {24,  24, 255,  20,  20,  20,  20,  20,  20, 255, 255, 255, 255}; // include_not
 	memcpy(states[STATE_NORMAL], tsti, sizeof(norm));
 	memcpy(states[STATE_TEST], tsti, sizeof(tsti));
