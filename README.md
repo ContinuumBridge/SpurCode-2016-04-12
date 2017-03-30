@@ -87,8 +87,8 @@ reserved for system use (28, 29, 30, 31), leaving 28 for a user program. The fol
 |  6     | MD    | State to go to on middle double-push (left & right together). 0xFF = ignore |
 |  7     | RS    | State to go to on right single-push. 0xFF = ignore |
 |  8     | RD    | State to go to on right double-push. 0xFF = ignore |
-|  9     | XV    | When button receives this value, go to state RS. 0xFF = ignore |
-|  A     | XS    | State to go to when value RV is received |
+|  9     | XV    | App value. When button receives this value, go to state RS. 0xFF = ignore |
+|  A     | XS    | App state. State to go to when value XV is received |
 |  B     | W     | Wait in this state for W seconds before going to state DWS. 0xFF = igore |
 |  C     | WS    | Go to this state after W seconds |
 |  D     | -     | Reserved for future use |
@@ -148,3 +148,9 @@ An example use of this is with the following screens:
 * Screen 2: "The problem is being reported"
 * Screen 3: "Low printer supplies reported"
 * Screen 4: "Fault with this printer has been reported"
+
+**Function of app value and app state**
+
+If the app value, XV is set to something other than 0xFF and the app state, XS is set to 0xFF, then if the node is in the state for which this is specifed, the display is changed to XV. XV is typically set to 15 and display 15 updated before sending this message.
+
+If the app value, XV is set to something other than 0xFF and the app state, XS is also set to something other than 0xFF, then the node changes state (not just display) to XS when XV is received.
