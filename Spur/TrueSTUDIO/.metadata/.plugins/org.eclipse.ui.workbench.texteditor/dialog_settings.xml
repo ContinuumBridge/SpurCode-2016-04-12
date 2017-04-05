@@ -4,20 +4,20 @@
 	</section>
 	<section name="org.eclipse.ui.texteditor.FindReplaceDialog">
 		<item value="true" key="wrap"/>
-		<item value="false" key="isRegEx"/>
 		<item value="false" key="casesensitive"/>
+		<item value="false" key="isRegEx"/>
 		<item value="false" key="incremental"/>
 		<item value="false" key="wholeword"/>
-		<item value="prepare_reset" key="selection"/>
+		<item value="Set_Display" key="selection"/>
 		<list key="findhistory">
-			<item value="prepare_reset"/>
-			<item value="reset"/>
-			<item value="Start received"/>
-			<item value="ADDRESSES_ADDR"/>
-			<item value="CONFIG_STORED_ADDR"/>
-			<item value="config_stored_addr"/>
-			<item value="AUTO_RESET_ADDR"/>
-			<item value="auto_reset_addr"/>
+			<item value="Set_Display"/>
+			<item value="working"/>
+			<item value="Configure_And_Test"/>
+			<item value="Network_Include"/>
+			<item value="STATE_CONNECTING"/>
+			<item value="STATE_INITIAL"/>
+			<item value="no_long_check"/>
+			<item value="CL"/>
 		</list>
 		<list key="replacehistory">
 			<item value="CONFIG_STORED_ADDR"/>

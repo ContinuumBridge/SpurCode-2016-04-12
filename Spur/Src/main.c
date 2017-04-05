@@ -59,7 +59,7 @@
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
 //#define CB_DEMO_0
-#define VERSION					7
+#define VERSION					9
 #define FONT_2 					Arial_Narrow14x20
 //#define FONT_2 					Arial_Unicode_MS17x20
 #define FONT_3 					Arial_Narrow18x26
@@ -90,6 +90,7 @@
 #define ONE_DAY 				(24*60*60)
 #define T_LONG_PRESS          	2    // Units: 1 second
 #define T_DOUBLE_PRESS_16		8    // Units: 1/16 second
+#define T_SIXTEETHS_TIMEOUT		16   // Units: 1/16 second
 #define T_RESET_PRESS         	8    // Units: 1 second
 #define T_MAX_RESET_PRESS		60   // To catch failure case
 
@@ -395,15 +396,21 @@ int main(void)
 	  {
 		  loop_catcher = 0;
 		  uint32_t sixteenths_now = SIXTEENTHS_NOW;
+		  uint32_t diff;
 		  for(side=0; side<2; side++)
 		  {
 			  if(last_press_sixteenths[side] != 0)
 			  {
 				  //sprintf(debug_buff,"Timeout: now %d: %u, last_press: %u, irq: %d\r\n", side, sixteenths_now, last_press_sixteenths[side], button_irq);
 				  //DEBUG_TX(debug_buff);
-				  if(sixteenths_now - last_press_sixteenths[side] > T_DOUBLE_PRESS_16)
+				  diff = sixteenths_now - last_press_sixteenths[side];
+				  if(diff > T_DOUBLE_PRESS_16)
 				  {
 					  On_Button_IRQ(BUTTON_NOT_PRESSED, pressed_button, button_state);
+				  }
+				  if(diff > T_SIXTEETHS_TIMEOUT)  // Something has gone wrong
+				  {
+					  stop_mode = 1;
 				  }
 			  }
 		  }
@@ -957,6 +964,22 @@ void On_Button_IRQ(uint16_t button_pressed, uint16_t GPIO_Pin, GPIO_PinState but
 		include_state = 0;
 		Network_Include();
 	}
+	else if(current_state == STATE_CONNECTING)
+	{
+		if((button_press == PRESS_RIGHT_DOUBLE) || (button_press == PRESS_LEFT_DOUBLE))
+		{
+			Set_Display(STATE_SENDING);
+			current_state = STATE_TEST_NEXT;
+			include_state = 0;
+			Configure_And_Test(1);
+		}
+		else
+		{
+			Set_Display(STATE_SENDING);
+			include_state = 0;
+			Network_Include();
+		}
+	}
 	else if(current_state == STATE_DEMO)
 	{
 		DEBUG_TX("Node state demo\r\n\0");
@@ -1030,6 +1053,7 @@ void On_Button_IRQ(uint16_t button_pressed, uint16_t GPIO_Pin, GPIO_PinState but
 				prepare_reset = 1;
 				DEBUG_TX("prepare_reset 1\r\n\0");
 				current_state = STATE_TEST_NEXT;
+				Set_Display(STATE_SENDING);
 				Configure_And_Test(0);
 				return;
 			default:
@@ -1078,7 +1102,7 @@ void On_NewState(uint8_t enable_send)
 	if(states[current_state][S_W] != 0xFF)  // Wait in this state for a fixed time
 	{
 		DEBUG_TX("On_NewState delay\r\n\0");
-		RTC_Delay(states[current_state][S_W]);
+		RTC_Delay((states[current_state][S_W] << 1));  // SR as delay is double the value
 	}
 }
 
@@ -1104,6 +1128,7 @@ void Network_Include(void)
 	uint8_t equal = 1;
 	uint8_t tx_data[6];
 	uint8_t try_again = 0;
+	uint8_t beacon_found = 0;
 	int i;
 
 	sprintf(debug_buff,"Network_Include. include_state: %d\r\n", (int)include_state);
@@ -1111,7 +1136,8 @@ void Network_Include(void)
 	if(include_state == 0)
 	{
 		node_address[0] = 0; node_address[1] = 0;  // Reset to not knowing network address
-		Set_Display(STATE_CONNECTING);
+		current_state = STATE_CONNECTING;
+		Set_Display(current_state);
 		include_state = 1;
 	}
 	else if(include_state < 16)
@@ -1121,6 +1147,7 @@ void Network_Include(void)
 	{
 		DEBUG_TX("Include. Beacon:");
 		Print_To_Debug(&Rx_Buffer, length);
+		beacon_found = 1;
 		bridge_address[0] = Rx_Buffer[2]; bridge_address[1] = Rx_Buffer[3];
 		rssi = Get_RSSI();
 		rssi = Get_RSSI();
@@ -1132,44 +1159,50 @@ void Network_Include(void)
 		Send_Message(f_include_req, 6, tx_data, 0, 0);
 	}
 	else
-		try_again = 1;
-
-	if(Message_Search(grant_address, Rx_Buffer, &length, BEACON_SEARCH_TIME) == SEARCH_OK)
 	{
-		equal = 1;
-		for(i=0; i<4; i++)
-			if(Rx_Buffer[i+12] != node_id[i])
-			{
-				equal = 0;
-				break;
-			}
-		if(equal)
+		DEBUG_TX("Beacon not found\r\n");
+		beacon_found = 0;
+		try_again = 1;
+	}
+	if(beacon_found)
+	{
+		if(Message_Search(grant_address, Rx_Buffer, &length, BEACON_SEARCH_TIME) == SEARCH_OK)
 		{
-			if(Rx_Buffer[4] == f_include_grant)
+			equal = 1;
+			for(i=0; i<4; i++)
+				if(Rx_Buffer[i+12] != node_id[i])
+				{
+					equal = 0;
+					break;
+				}
+			if(equal)
 			{
-				DEBUG_TX("Received grant\r\n\0");
-				node_address[0] = Rx_Buffer[16]; node_address[1] = Rx_Buffer[17];
-				uint8_t data[] = {0x00, 0x00};
-				Send_Message(f_ack, 0, data, 0, 0);
-				DEBUG_TX("Sent ack for grant\r\n\0");
-				include_state = 0;
-				current_state = STATE_CONFIG;
-				On_NewState(1);
-				DEBUG_TX("Sending woken_up after grant\r\n\0");
-				Send_Message(f_woken_up, 0, data, 1, 0);
-			}
-			else if(Rx_Buffer[4] == f_include_not)
-			{
-				DEBUG_TX("Received include_not\r\n\0");
-				current_state = STATE_NOT_GRANT;
-				On_NewState(1);
+				if(Rx_Buffer[4] == f_include_grant)
+				{
+					DEBUG_TX("Received grant\r\n\0");
+					node_address[0] = Rx_Buffer[16]; node_address[1] = Rx_Buffer[17];
+					uint8_t data[] = {0x00, 0x00};
+					Send_Message(f_ack, 0, data, 0, 0);
+					DEBUG_TX("Sent ack for grant\r\n\0");
+					include_state = 0;
+					current_state = STATE_CONFIG;
+					On_NewState(1);
+					DEBUG_TX("Sending woken_up after grant\r\n\0");
+					Send_Message(f_woken_up, 0, data, 1, 0);
+				}
+				else if(Rx_Buffer[4] == f_include_not)
+				{
+					DEBUG_TX("Received include_not\r\n\0");
+					current_state = STATE_NOT_GRANT;
+					On_NewState(1);
+				}
 			}
 		}
-	}
-	else
-	{
-		DEBUG_TX("Network_Include. Did not receive grant\r\n\0");
-		try_again = 1;
+		else
+		{
+			DEBUG_TX("Network_Include. Did not receive grant\r\n\0");
+			try_again = 1;
+		}
 	}
 	if(try_again)
 	{
@@ -1208,8 +1241,9 @@ void Network_Include(void)
 				Radio_Off();
 				RTC_Delay(43200);
 		}
-		return;
 	}
+	button_irq = 0; // Prevents problems when people push the button during network include (down or up push missed)
+	return;
 }
 
 void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
@@ -1481,6 +1515,7 @@ void Manage_Send(uint8_t ack, uint8_t beacon, uint8_t function)
 void Listen_Radio(uint8_t reset_fail_count, uint8_t no_listen)
 {
 	static uint8_t 		fail_count 			= 0;
+	static uint8_t 		fail_count_2		= 0;
 	static uint8_t 		time_rssi_sent 		= 0;
 	uint8_t				len 				= 0;
 	uint32_t 			now;
@@ -1496,22 +1531,6 @@ void Listen_Radio(uint8_t reset_fail_count, uint8_t no_listen)
 		if(Rx_Buffer[4] == f_config)
 		{
 			DEBUG_TX("Listen_Radio. Config message received\r\n\0");
-			/*
-			if(!start_from_reset)
-			{
-				now = Cbr_Now();
-				if((now - time_rssi_sent) > 300)  // To stop us sending this lots of time during a reconfig
-				{
-					time_rssi_sent = now;
-					temperature = Get_Temperature();
-					rssi = Get_RSSI();
-					data[0] = temperature; data[1] = rssi;
-					len = 2;
-					sprintf(debug_buff,"Config ack data: %d %d\r\n", (int)data[0], (int)data[1]);
-					DEBUG_TX(debug_buff);
-				}
-			}
-			*/
 			if(MODE != RATE)
 				Store_Config(length);
 			Send_Message(f_ack, 0, data, 0, 0);
@@ -1537,7 +1556,6 @@ void Listen_Radio(uint8_t reset_fail_count, uint8_t no_listen)
 			DEBUG_TX("Listen_Radio. Send battery received\r\n\0");
 			Send_Message(f_ack, 0, data, 0, 0);
 			Read_Battery(1);
-			//Set_Wakeup(0);
 		}
 		else if(Rx_Buffer[4] == f_configuring)
 		{
@@ -1575,17 +1593,27 @@ void Listen_Radio(uint8_t reset_fail_count, uint8_t no_listen)
 			fail_count++;
 			Listen_Radio(0, 0);
 		}
-		else  // Catches case where we miss an ack and last wakeup was 0
+		else if(fail_count_2 < 3) // Catches case where we miss an ack and last wakeup was 0
 		{
 			fail_count = 0;
+			fail_count_2++;
+			sprintf(debug_buff, "Listen_Radio, fail_count_2: %d\r\n", (int)fail_count_2);
+			DEBUG_TX(debug_buff);
 			Radio_Off();
 			RTC_Delay(30);
+		}
+		else  // Something has gone seriously wrong. Go back to start.
+		{
+			Radio_Off();
+			include_state = 0;
+			Network_Include();
 		}
 	}
 }
 
 void Set_Wakeup(uint8_t error)
 {
+	static uint8_t 		loop_count 		= 0;  // To limit stay awake time under error conditions
 	DEBUG_TX("Set_Wakeup\r\n\0");
 	if(error)
 	{
@@ -1598,15 +1626,22 @@ void Set_Wakeup(uint8_t error)
 		uint32_t wakeup = ((Rx_Buffer[10] << 8) | Rx_Buffer[11]) << 1;
 		if(wakeup > ONE_DAY)
 			wakeup = ONE_DAY;
+		else if(loop_count > 15)
+		{
+			wakeup = 10;
+			DEBUG_TX("Set_Wakeup, loop_count exceeded\r\n\0");
+		}
 		if(wakeup == 0)
 		{
 			DEBUG_TX("Set_Wakeup, calling Listen_Radio\r\n\0");
+			loop_count++;
 			Listen_Radio(1, 0);
 		}
 		else
 		{
 			sprintf(debug_buff, "Set_Wakeup for %d\r\n", (int)wakeup);
 			DEBUG_TX(debug_buff);
+			loop_count = 0;
 			RTC_Delay(wakeup);
 		}
 	}
@@ -2063,12 +2098,12 @@ void Initialise_States(void)
 	static const uint8_t norm[16] = {16,  16, 255,  16,  16,  16,  16,  16,  16, 255,   0,   2,  16}; // Normal
 	static const uint8_t tsti[16] = {16,  16, 255,  19,  19,  19,  19,  19,  19, 255,   0,  15,  19}; // Test Initial
 	static const uint8_t nprb[16] = {17,  17, 255,   0,   0,   0,   0,   0,   0, 255,   0, 255, 255}; // Network Problem
-	static const uint8_t tstn[16] = {16,  16, 255, 255, 255, 255, 255, 255, 255, 255,   0,   6,   0}; // Test Next
+	static const uint8_t tstn[16] = {16,  16, 255, 255, 255, 255, 255, 255, 255, 255,   0,   3,   0}; // Test Next
 	static const uint8_t init[16] = {19,  19, 255,  20, 255, 255,  20, 255,  20, 255, 255, 255, 255}; // Push to Connect
 	static const uint8_t conn[16] = {20,  20, 255, 255, 255, 255, 255, 255, 255,   2,  21, 255, 255}; // Connecting
 	static const uint8_t conf[16] = {21,  21, 255,  19,  19,  19,  19,  19,  19,  13,   0, 255, 255}; // Configuring
 	static const uint8_t strt[16] = {22,  22, 255,   0, 255, 255,   0, 255,   0,  13,   0, 255, 255}; // Double-push to start
-	static const uint8_t prob[16] = {23,  23, 255,   0,   0,   0,   0,   0,   0,  255,  0, 255, 255}; // Comms Problem
+	static const uint8_t prob[16] = {23,  23, 255, 255, 255, 255, 255, 255, 255,  255,  0, 255, 255}; // Comms Problem
 	static const uint8_t ngnt[16] = {24,  24, 255,  20,  20,  20,  20,  20,  20, 255, 255, 255, 255}; // include_not
 	memcpy(states[STATE_NORMAL], tsti, sizeof(norm));
 	memcpy(states[STATE_TEST], tsti, sizeof(tsti));
