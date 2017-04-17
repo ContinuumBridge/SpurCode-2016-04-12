@@ -310,6 +310,7 @@ int main(void)
   sprintf(debug_buff, "auto_reset on reset: %d, new_button: %d\r\n", (int)auto_reset, (int)new_button);
   DEBUG_TX(debug_buff);
   if(!auto_reset || new_button)
+  //if(1)  // Use if a button is bricked
   {
 	  ecog_init();
 	  ecog_printfc(FONT_3, 4, "SPUR");
@@ -357,6 +358,8 @@ int main(void)
 		  HAL_UART_MspInit(&huart1);
 		  DEBUG_TX("*** Main ***\r\n\0");
 	  }
+	  if(current_state < 16)
+		  RTC_Delay(60);  // A fail-safe for "user" states
 	  if(auto_reset)
 	  {
 		  DEBUG_TX("Starting after auto reset\r\n\0");
@@ -380,7 +383,6 @@ int main(void)
 			  DEBUG_TX("Finished On_Button_IRQ\r\n\0");
 			  if(!display_irq_enabled)
 			  {
-				  DEBUG_TX("display_irq disabled\r\n\0");
 				  Enable_IRQ(using_side);
 			  }
 		  }
@@ -2052,6 +2054,7 @@ void Configure_And_Test(uint8_t reset)
 	}
 	else
 		DEBUG_TX("Conifgure Rx problem\r\n\0");
+	rssi = Get_RSSI();
 	rssi = Get_RSSI();
 	Radio_Off();
 	sprintf(debug_buff, "Battery voltage: %d.%d\r\n", (int)(voltage/100), voltage%100);
